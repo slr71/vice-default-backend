@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is **vice-default-backend**, a Go service that acts as the default backend handler for the Kubernetes Ingress routing VICE (Visual Interactive Computing Environment) apps. It determines whether to redirect requests to the loading page service, landing page service, or a 404 page based on URL validity.
+This is **vice-default-backend**, a Go service that acts as the catch-all default backend for VICE (Visual Interactive Computing Environment) analysis subdomains. When a request hits a `*.cyverse.run` subdomain before the analysis-specific HTTPRoute is active, this service serves a waiting page that periodically refreshes until the vice-operator loading page or the analysis itself takes over.
 
 ## Build and Run Commands
 
@@ -12,40 +12,28 @@ This is **vice-default-backend**, a Go service that acts as the default backend 
 # Build
 go build ./...
 
-# Run locally (requires config file and database)
-./vice-default-backend --config /path/to/jobservices.yml --listen 0.0.0.0:60000
+# Run locally
+./vice-default-backend --listen 0.0.0.0:60000
 
-# Run with SSL
-./vice-default-backend --config /path/to/jobservices.yml --ssl-cert /path/to/cert.crt --ssl-key /path/to/key.key
+# Run with custom refresh interval
+./vice-default-backend --refresh-seconds 10
 
 # Lint (uses shared workflow with golangci-lint)
 golangci-lint run
 ```
 
-## Configuration
-
-The service reads configuration from a YAML file (default: `/etc/iplant/de/jobservices.yml`) with these required keys:
-- `vice.db.uri` - PostgreSQL connection string
-- `vice.default_backend.base_url` - Base URL for VICE apps
-- `vice.default_backend.loading_page_url` - URL for the loading page redirect
-
 ## CLI Flags
 
-- `--config` - Path to config file (default: `/etc/iplant/de/jobservices.yml`)
 - `--listen` - Listen address (default: `0.0.0.0:60000`)
-- `--ssl-cert` / `--ssl-key` - SSL certificate and key paths
-- `--static-file-path` - Path to static assets (default: `./static`)
-- `--disable-custom-header-match` - Use Host header instead of X-Frontend-Url for subdomain matching (useful for development)
-- `--log-level` - One of: trace, debug, info, warn, error, fatal, panic
+- `--refresh-seconds` - Seconds between page reloads while waiting (default: `5`)
+- `--log-level` - One of: trace, debug, info, warn, error, fatal, or panic
 
 ## Architecture
 
-Single-file Go service (`main.go`) with:
-- **App struct** - Holds database connection, URLs, and configuration
-- **RouteRequest handler** - Main routing logic that redirects all requests to the loading page with the app URL encoded
+Single-file Go service (`main.go`) with an embedded HTML template (`templates/waiting.html`):
+- **HandleWaiting** - Serves the waiting page for all requests; sets `X-Vice-Default-Backend: true` header
 - **Health endpoint** - `/healthz` for Kubernetes probes
-- **Static file serving** - `/static/` prefix serves files from static directory
-- **404 handler** - Serves `static/404.html` for unmatched routes
+- **Waiting page** - Self-contained HTML/CSS/JS that counts down and reloads the page on the configured interval
 
 ## Deployment
 
